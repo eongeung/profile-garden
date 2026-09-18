@@ -1,0 +1,49 @@
+name: garden
+
+on:
+  schedule:
+    - cron: '20 21 * * *'   # 매일 06:20 KST
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/**'
+      - 'garden.config.json'
+      - '.github/workflows/garden.yml'
+
+# dist/ 갱신본을 되밀어야 하므로 쓰기 권한이 필요하다
+permissions:
+  contents: write
+
+# 스케줄과 수동 실행이 겹쳐 같은 브랜치에 동시에 push 하지 않도록
+concurrency:
+  group: garden
+  cancel-in-progress: false
+
+jobs:
+  grow:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: 나무 그리기
+        env:
+          # 비공개 기여까지 세려면 read:user 권한 PAT를 GARDEN_TOKEN 시크릿으로 등록한다
+          GITHUB_TOKEN: ${{ secrets.GARDEN_TOKEN || secrets.GITHUB_TOKEN }}
+        run: node scripts/generate.mjs
+
+      - name: 바뀌었으면 커밋
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add dist
+          if git diff --staged --quiet; then
+            echo '변화 없음'
+            exit 0
+          fi
+          git commit -m 'chore: 나무 갱신'
+          git push
