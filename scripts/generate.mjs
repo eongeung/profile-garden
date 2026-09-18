@@ -277,6 +277,8 @@ function render({ username, stats, theme: themeName }) {
   const bark = dim('#7a4e2d'), barkDark = dim('#5a381f'), barkLight = dim('#96633b');
   const palettes = LEAVES[season].map((p) => p.map(dim));
 
+  let layers = '';
+
   if (g.stage === 0) {
     for (let x = CX - 2; x <= CX + 2; x++) set(x, GY - 1, dirt[1]);
     for (let x = CX - 1; x <= CX + 1; x++) set(x, GY - 2, dirt[1]);
@@ -318,6 +320,8 @@ function render({ username, stats, theme: themeName }) {
     const maxX = Math.ceil(Math.max(...blobs.map((b) => b.x + b.r))) + 1;
     const minY = Math.max(0, Math.floor(Math.min(...blobs.map((b) => b.y - b.r))) - 1);
     const leaves = [];
+    const canopyPx = [];
+    const fallLayers = [];
     let canopyBottom = 0;
 
     for (let y = minY; y < GY - 1; y++) {
@@ -337,7 +341,7 @@ function render({ username, stats, theme: themeName }) {
         let color = pal[idx];
         if (season === 'spring' && idx <= 1 && noise(x, y, 'bloom') < 0.12) color = dim(noise(x, y, 'pink') > 0.5 ? '#f7b5cf' : '#ffdbe9');
         if (season === 'winter' && !up) color = dim('#ffffff');
-        set(x, y, color);
+        canopyPx.push({ x, y, c: color });
         if (!edge) leaves.push({ x, y });
       }
     }
@@ -350,19 +354,24 @@ function render({ username, stats, theme: themeName }) {
         if (picked.length >= want) break;
         if (picked.some((q) => Math.abs(q.x - p.x) < 3 && Math.abs(q.y - p.y) < 3)) continue;
         picked.push(p);
-        set(p.x, p.y, dim('#e63946'));
-        set(p.x, p.y + 1, dim('#9d1b20'));
+        canopyPx.push({ x: p.x, y: p.y, c: dim('#e63946') });
+        canopyPx.push({ x: p.x, y: p.y + 1, c: dim('#9d1b20') });
       }
     }
 
     // 떨어지는 잎: 가을이거나 오래 쉬었을 때
     const falling = season === 'autumn' ? 7 : stats.idleDays >= 7 ? Math.min(10, Math.floor(stats.idleDays / 3)) : 0;
     for (let i = 0; i < falling; i++) {
+      // 수관 아래에서 출발해 땅까지 흩날린다
       const x = Math.round(cx0 - R + noise(i, 0, 'fx') * 2 * R);
-      let y = Math.round(canopyBottom + 1 + noise(i, 1, 'fy') * (GY - canopyBottom));
-      if (y >= GY - 1) y = GY;
-      set(x, y, palettes[i % palettes.length][1 + (i % 2)]);
+      const y = Math.min(GY - 1, canopyBottom + 1);
+      const dx = Math.round((noise(i, 1, 'fdx') - 0.5) * 9) * P;
+      const dy = (GY - y) * P;
+      fallLayers.push(`<g class="fall" style="--dx:${dx}px;--dy:${dy}px;animation-duration:${(7 + noise(i, 2, 'fdur') * 6).toFixed(1)}s;animation-delay:-${(noise(i, 3, 'fdel') * 12).toFixed(1)}s">`
+        + pixelRects([{ x, y, c: palettes[i % palettes.length][1 + (i % 2)] }]) + '</g>');
     }
+
+    layers = `<g class="sway">${pixelRects(canopyPx)}</g>` + fallLayers.join('');
   }
 
   // 정보 줄
@@ -374,14 +383,50 @@ function render({ username, stats, theme: themeName }) {
       ? 'waiting for the first commit'
       : `${fmt(stats.total)} contributions · watered ${stats.idleDays}d ago`;
 
-  return toSvg(grid, theme, left, right, `${username}'s pixel garden: ${g.name}, ${fmt(stats.total)} contributions`);
+  return toSvg(grid, theme, left, right, `${username}'s pixel garden: ${g.name}, ${fmt(stats.total)} contributions`, layers);
 }
 
 function esc(s) {
   return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 }
 
-function toSvg(grid, theme, left, right, title) {
+// ---------------------------------------------------------------- 움직임
+
+// <img>로 삽입된 SVG 안에서도 CSS 애니메이션은 동작한다(스크립트는 불가).
+// 움직임을 끄고 싶다는 OS 설정은 존중한다.
+const STYLE = `<style>
+@keyframes gd-sway { 0%,100% { transform: rotate(-0.8deg) } 50% { transform: rotate(0.8deg) } }
+@keyframes gd-bob  { 0%,100% { transform: translate(0,0) } 25% { transform: translate(2px,-2.5px) } 75% { transform: translate(-2px,2.5px) } }
+@keyframes gd-rise { 0% { transform: translateY(0); opacity: 0 } 12% { opacity: .85 } 88% { opacity: .85 } 100% { transform: translateY(var(--rise)); opacity: 0 } }
+@keyframes gd-fall { 0% { transform: translate(0,0) rotate(0deg); opacity: 0 } 8% { opacity: 1 } 92% { opacity: 1 } 100% { transform: translate(var(--dx), var(--dy)) rotate(240deg); opacity: 0 } }
+.sway { transform-box: fill-box; transform-origin: 50% 100%; animation: gd-sway 7s ease-in-out infinite }
+.bob  { transform-box: fill-box; transform-origin: 50% 50%;  animation: gd-bob 5s ease-in-out infinite }
+.rise { animation: gd-rise 6s linear infinite }
+.fall { transform-box: fill-box; transform-origin: 50% 50%;  animation: gd-fall 9s linear infinite }
+@media (prefers-reduced-motion: reduce) { .sway, .bob, .rise, .fall { animation: none } }
+</style>`;
+
+// 흩어진 픽셀 목록을 가로로 이어붙인 rect 로 (배경 격자와 같은 방식)
+function pixelRects(px) {
+  const rows = new Map();
+  for (const q of px) {
+    if (!rows.has(q.y)) rows.set(q.y, new Map());
+    rows.get(q.y).set(q.x, q.c);
+  }
+  const out = [];
+  for (const [y, row] of [...rows].sort((a, b) => a[0] - b[0])) {
+    const xs = [...row.keys()].sort((a, b) => a - b);
+    for (let i = 0; i < xs.length;) {
+      let j = i;
+      while (j + 1 < xs.length && xs[j + 1] === xs[j] + 1 && row.get(xs[j + 1]) === row.get(xs[i])) j++;
+      out.push(`<rect x="${xs[i] * P}" y="${y * P}" width="${(xs[j] - xs[i] + 1) * P}" height="${P}" fill="${row.get(xs[i])}"/>`);
+      i = j + 1;
+    }
+  }
+  return out.join('');
+}
+
+function toSvg(grid, theme, left, right, title, layers = '') {
   const rects = [];
   for (let y = 0; y < H; y++) {
     let x = 0;
@@ -398,9 +443,10 @@ function toSvg(grid, theme, left, right, title) {
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" role="img" aria-label="${esc(title)}">
 <title>${esc(title)}</title>
 <defs><clipPath id="frame"><rect width="${w}" height="${h}" rx="10"/></clipPath></defs>
+${STYLE}
 <g clip-path="url(#frame)">
 <rect width="${w}" height="${h}" fill="${theme.frame}"/>
-<g shape-rendering="crispEdges">${rects.join('')}</g>
+<g shape-rendering="crispEdges">${rects.join('')}${layers}</g>
 <text x="12" y="${ty}" font-family="${font}" font-size="11" font-weight="700" fill="${theme.text}">${esc(left)}</text>
 <text x="${w - 12}" y="${ty}" text-anchor="end" font-family="${font}" font-size="11" fill="${theme.muted}">${esc(right)}</text>
 </g>
@@ -480,15 +526,18 @@ function renderTank({ username, stats, theme: themeName }) {
   // 수초
   const weed = ['#3f9d5a', '#2f7a46', '#54b86c'].map(dim);
   const plants = 3 + Math.floor(noise(0, 0, 'pn') * 3);
+  const layers = [];
   for (let i = 0; i < plants; i++) {
     const x0 = 3 + Math.floor(noise(i, 0, 'px') * (W - 6));
     const h = 5 + Math.floor(noise(i, 1, 'ph') * 13);
+    const px = [];
     for (let k = 0; k < h; k++) {
       const y = FLOOR - 1 - k;
       const x = x0 + Math.round(Math.sin((k + i * 2) * 0.55) * 1.6);
-      set(x, y, weed[k % 2]);
-      if (k % 3 === 0) set(x + (i % 2 ? 1 : -1), y, weed[2]);
+      px.push({ x, y, c: weed[k % 2] });
+      if (k % 3 === 0) px.push({ x: x + (i % 2 ? 1 : -1), y, c: weed[2] });
     }
+    layers.push(`<g class="sway" style="animation-duration:${(6 + noise(i, 2, 'pd') * 5).toFixed(1)}s;animation-delay:-${(noise(i, 3, 'pdl') * 7).toFixed(1)}s">${pixelRects(px)}</g>`);
   }
 
   // 물고기: 최근 30일 중 활동한 하루당 한 마리
@@ -501,13 +550,15 @@ function renderTank({ username, stats, theme: themeName }) {
 
     const right = noise(i, 0, 'dir') > 0.5;
     const pal = FISH_COLORS[Math.floor(noise(i, 1, 'col') * FISH_COLORS.length)].map(dim);
+    const px = [];
     for (let dy = 0; dy < FH; dy++) {
       for (let dx = 0; dx < FW; dx++) {
         const ch = FISH[dy][right ? dx : FW - 1 - dx];
         if (ch === '.') continue;
-        set(x + dx, y + dy, ch === 'E' ? dim('#1b1f24') : dy === FH - 1 ? pal[1] : pal[0]);
+        px.push({ x: x + dx, y: y + dy, c: ch === 'E' ? dim('#1b1f24') : dy === FH - 1 ? pal[1] : pal[0] });
       }
     }
+    layers.push(`<g class="bob" style="animation-duration:${(4 + noise(i, 2, 'fd') * 4).toFixed(1)}s;animation-delay:-${(noise(i, 3, 'fdl') * 8).toFixed(1)}s">${pixelRects(px)}</g>`);
     placed.push({ x, y });
     i++;
   }
@@ -517,7 +568,8 @@ function renderTank({ username, stats, theme: themeName }) {
   for (let i = 0; i < 16; i++) {
     const x = Math.floor(noise(i, 0, 'bx') * W);
     const y = SURF + 1 + Math.floor(noise(i, 1, 'by') * (FLOOR - SURF - 2));
-    if (theme.water.includes(get(x, y))) set(x, y, bubble);
+    if (!theme.water.includes(get(x, y))) continue;
+    layers.push(`<g class="rise" style="--rise:${-((y - SURF) * P + P)}px;animation-duration:${(5 + noise(i, 2, 'bd') * 5).toFixed(1)}s;animation-delay:-${(noise(i, 3, 'bdl') * 10).toFixed(1)}s">${pixelRects([{ x, y, c: bubble }])}</g>`);
   }
 
   const fmt = (n) => n.toLocaleString('en-US');
@@ -526,7 +578,7 @@ function renderTank({ username, stats, theme: themeName }) {
     ? `last 30 days · ${fmt(stats.recentTotal)} contributions`
     : 'quiet water';
 
-  return toSvg(grid, theme, left, right, `${username}'s aquarium: ${fishCount} fish from the last 30 days`);
+  return toSvg(grid, theme, left, right, `${username}'s aquarium: ${fishCount} fish from the last 30 days`, layers.join(''));
 }
 
 // ---------------------------------------------------------------- 실행
