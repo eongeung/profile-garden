@@ -28,6 +28,17 @@ GitHub 활동을 먹고 자라는 픽셀 아트 정원. 매일 한 번 기여 �
 
 나무만, 또는 어항만 쓰고 싶으면 해당 `<picture>` 블록만 넣으면 된다.
 
+## 내 계정에 가져다 쓰기
+
+1. 이 저장소를 fork 한다.
+2. `garden.config.json`에서 `"username"` 줄을 지운다 — 저장소 주인이 자동으로 쓰인다.
+   (다른 계정을 그리고 싶으면 그 아이디로 바꾼다.)
+3. fork 된 저장소의 `Actions` 탭에서 워크플로를 활성화하고 `garden` → `Run workflow`
+   를 한 번 눌러 `dist/`를 내 활동으로 덮어쓴다. 이후로는 매일 자동으로 돈다.
+4. 프로필 README에 위 `<picture>` 블록을 넣되 URL의 `eongeung`을 내 아이디로 바꾼다.
+
+비공개 저장소 기여까지 세려면 아래 「설정」의 `GARDEN_TOKEN`을 등록한다.
+
 ## 동작 방식
 
 `.github/workflows/garden.yml`이 매일 06:20 KST(그리고 스크립트를 수정해 push 할 때마다) 실행된다.
