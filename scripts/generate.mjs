@@ -99,7 +99,12 @@ function summarize(total, days, today) {
     .pop();
   const idleDays = last ? Math.round((Date.parse(today) - Date.parse(last)) / 86_400_000) : Infinity;
 
-  return { total, streak, idleDays, month: Number(today.slice(5, 7)) };
+  // 어항용: 최근 30일(오늘 포함) 중 활동한 하루 수와 그 합계
+  const recent = Array.from({ length: 30 }, (_, i) => count.get(shiftDate(today, i - 29)) ?? 0);
+  const activeDays = recent.filter((c) => c > 0).length;
+  const recentTotal = recent.reduce((a, b) => a + b, 0);
+
+  return { total, streak, idleDays, activeDays, recentTotal, month: Number(today.slice(5, 7)) };
 }
 
 // ---------------------------------------------------------------- 성장 규칙
@@ -168,11 +173,13 @@ function mix(hex, amount) {
 const THEMES = {
   light: {
     sky: ['#9fd3ee', '#b2dcf1', '#c6e6f4', '#daeff7'],
+    water: ['#7cc5e9', '#5db0dc', '#4599ca', '#317fb0'],
     frame: '#ffffff', text: '#1f2328', muted: '#656d76', border: '#d0d7de',
     dim: 0,
   },
   dark: {
     sky: ['#0b1224', '#101a31', '#15223f', '#1b2b4c'],
+    water: ['#123049', '#0e2740', '#0b1f35', '#08182a'],
     frame: '#0d1117', text: '#e6edf3', muted: '#8d96a0', border: '#30363d',
     dim: -0.28,
   },
@@ -402,6 +409,126 @@ function toSvg(grid, theme, left, right, title) {
 `;
 }
 
+// ---------------------------------------------------------------- 어항
+
+// 물고기 스프라이트(오른쪽을 봄). B=몸통, E=눈, .=투명
+const FISH = ['B.BB.', 'BBBBE', 'B.BB.'];
+const FW = 5, FH = 3;
+
+// 물고기 색 [몸통, 배 그늘]
+const FISH_COLORS = [
+  ['#f4a259', '#c97c33'],
+  ['#e8615a', '#b53f3f'],
+  ['#f2d06b', '#c9a53c'],
+  ['#6fc3df', '#3f92b5'],
+  ['#eef2f4', '#b3bfc7'],
+  ['#c58bd6', '#9159ab'],
+];
+
+const SURF = 4;    // 수면이 있는 행
+const FLOOR = 38;  // 자갈이 시작되는 행
+
+function renderTank({ username, stats, theme: themeName }) {
+  const theme = THEMES[themeName];
+  const light = themeName === 'light';
+  // 나무와 다른 시드를 써서 같은 사용자라도 배치가 겹치지 않게 한다
+  const noise = makeNoise(`${username}#tank`);
+  const dim = (c) => (theme.dim ? mix(c, theme.dim) : c);
+
+  const grid = Array.from({ length: H }, () => Array(W).fill(null));
+  const get = (x, y) => (x >= 0 && x < W && y >= 0 && y < H ? grid[y][x] : null);
+  const set = (x, y, c) => {
+    x = Math.round(x); y = Math.round(y);
+    if (x >= 0 && x < W && y >= 0 && y < H) grid[y][x] = c;
+  };
+
+  // 수면 위 공기
+  for (let y = 0; y < SURF; y++) for (let x = 0; x < W; x++) set(x, y, theme.frame);
+
+  // 물: 아래로 갈수록 짙어진다
+  const band = (FLOOR - SURF) / theme.water.length;
+  for (let y = SURF; y < FLOOR; y++) {
+    const b = Math.min(theme.water.length - 1, Math.floor((y - SURF) / band));
+    const edge = b < theme.water.length - 1 && y === SURF + Math.floor((b + 1) * band) - 1;
+    for (let x = 0; x < W; x++) set(x, y, edge && (x + y) % 2 ? theme.water[b + 1] : theme.water[b]);
+  }
+
+  // 수면 반짝임
+  for (let x = 0; x < W; x++) {
+    set(x, SURF, mix(theme.water[0], light ? 0.45 : 0.3));
+    if (noise(x, 0, 'glint') < 0.2) set(x, SURF - 1, mix(theme.water[0], light ? 0.62 : 0.45));
+  }
+
+  // 비스듬히 내려오는 빛줄기
+  for (let i = 0; i < 3; i++) {
+    const x0 = 6 + Math.floor(noise(i, 0, 'ray') * (W - 18));
+    for (let y = SURF + 1; y < FLOOR - 1; y++) {
+      const x = x0 + Math.floor((y - SURF) * 0.45);
+      if (get(x, y)) set(x, y, mix(get(x, y), light ? 0.16 : 0.1));
+      if (get(x + 1, y)) set(x + 1, y, mix(get(x + 1, y), light ? 0.09 : 0.05));
+    }
+  }
+
+  // 자갈
+  const pebble = ['#8d8378', '#a09588', '#766d63', '#b3a99b'].map((c) => mix(c, theme.dim));
+  for (let y = FLOOR; y < H; y++)
+    for (let x = 0; x < W; x++)
+      set(x, y, pebble[Math.floor(noise(x, y, 'peb') * pebble.length)]);
+  for (let x = 0; x < W; x++)
+    if (noise(x, 0, 'wet') < 0.4) set(x, FLOOR, mix(pebble[1], light ? 0.14 : -0.12));
+
+  // 수초
+  const weed = ['#3f9d5a', '#2f7a46', '#54b86c'].map(dim);
+  const plants = 3 + Math.floor(noise(0, 0, 'pn') * 3);
+  for (let i = 0; i < plants; i++) {
+    const x0 = 3 + Math.floor(noise(i, 0, 'px') * (W - 6));
+    const h = 5 + Math.floor(noise(i, 1, 'ph') * 13);
+    for (let k = 0; k < h; k++) {
+      const y = FLOOR - 1 - k;
+      const x = x0 + Math.round(Math.sin((k + i * 2) * 0.55) * 1.6);
+      set(x, y, weed[k % 2]);
+      if (k % 3 === 0) set(x + (i % 2 ? 1 : -1), y, weed[2]);
+    }
+  }
+
+  // 물고기: 최근 30일 중 활동한 하루당 한 마리
+  const fishCount = Math.max(0, Math.min(30, stats.activeDays));
+  const placed = [];
+  for (let i = 0, tries = 0; placed.length < fishCount && tries < 600; tries++) {
+    const x = 1 + Math.floor(noise(i, tries, 'fx') * (W - FW - 2));
+    const y = SURF + 2 + Math.floor(noise(i, tries, 'fy') * (FLOOR - SURF - FH - 3));
+    if (placed.some((p) => Math.abs(p.x - x) < FW + 1 && Math.abs(p.y - y) < FH + 1)) continue;
+
+    const right = noise(i, 0, 'dir') > 0.5;
+    const pal = FISH_COLORS[Math.floor(noise(i, 1, 'col') * FISH_COLORS.length)].map(dim);
+    for (let dy = 0; dy < FH; dy++) {
+      for (let dx = 0; dx < FW; dx++) {
+        const ch = FISH[dy][right ? dx : FW - 1 - dx];
+        if (ch === '.') continue;
+        set(x + dx, y + dy, ch === 'E' ? dim('#1b1f24') : dy === FH - 1 ? pal[1] : pal[0]);
+      }
+    }
+    placed.push({ x, y });
+    i++;
+  }
+
+  // 기포: 물만 덮는다
+  const bubble = mix(theme.water[0], light ? 0.55 : 0.4);
+  for (let i = 0; i < 16; i++) {
+    const x = Math.floor(noise(i, 0, 'bx') * W);
+    const y = SURF + 1 + Math.floor(noise(i, 1, 'by') * (FLOOR - SURF - 2));
+    if (theme.water.includes(get(x, y))) set(x, y, bubble);
+  }
+
+  const fmt = (n) => n.toLocaleString('en-US');
+  const left = `@${username} · ${fishCount} fish`;
+  const right = stats.recentTotal > 0
+    ? `last 30 days · ${fmt(stats.recentTotal)} contributions`
+    : 'quiet water';
+
+  return toSvg(grid, theme, left, right, `${username}'s aquarium: ${fishCount} fish from the last 30 days`);
+}
+
 // ---------------------------------------------------------------- 실행
 
 async function writeDemo(username) {
@@ -412,6 +539,11 @@ async function writeDemo(username) {
     ['Idle days (350 contributions)', [0, 5, 10, 20, 40].map((idle) => ({ label: `${idle} days idle`, stats: { total: 350, streak: idle ? 0 : 3, idleDays: idle, month } }))],
   ];
   const card = (item, theme) => `<figure>${render({ username, stats: item.stats, theme })}<figcaption>${esc(item.label)} · ${theme}</figcaption></figure>`;
+  const tanks = [0, 3, 8, 15, 22, 30].map((activeDays) => ({
+    label: `${activeDays} active days`,
+    stats: { activeDays, recentTotal: activeDays * 7, month },
+  }));
+  const tankCard = (item, theme) => `<figure>${renderTank({ username, stats: item.stats, theme })}<figcaption>${esc(item.label)} · ${theme}</figcaption></figure>`;
   const html = `<!doctype html><meta charset="utf-8"><title>profile-garden preview</title>
 <style>
 body{margin:0;padding:24px;background:#f6f8fa;font:14px system-ui,sans-serif;color:#1f2328}
@@ -423,7 +555,8 @@ figcaption{font-size:12px;color:#656d76;margin-top:4px}
 .dark figcaption{color:#8d96a0}
 </style>
 ${groups.map(([title, items]) => `<h2>${esc(title)}</h2><div class="row">${items.map((i) => card(i, 'light')).join('')}</div>`).join('\n')}
-<h2>Dark theme</h2><div class="row dark">${groups[0][1].slice(3).map((i) => card(i, 'dark')).join('')}</div>`;
+<h2>Aquarium — 최근 30일 중 활동한 하루당 물고기 한 마리</h2><div class="row">${tanks.map((i) => tankCard(i, 'light')).join('')}</div>
+<h2>Dark theme</h2><div class="row dark">${groups[0][1].slice(3).map((i) => card(i, 'dark')).join('')}${tanks.slice(2).map((i) => tankCard(i, 'dark')).join('')}</div>`;
   await mkdir(join(ROOT, 'preview'), { recursive: true });
   await writeFile(join(ROOT, 'preview', 'index.html'), html);
   console.log('preview/index.html written');
@@ -442,6 +575,7 @@ if (process.argv.includes('--demo')) {
   await mkdir(join(ROOT, 'dist'), { recursive: true });
   for (const theme of Object.keys(THEMES)) {
     await writeFile(join(ROOT, 'dist', `tree-${theme}.svg`), render({ username: config.username, stats, theme }));
+    await writeFile(join(ROOT, 'dist', `tank-${theme}.svg`), renderTank({ username: config.username, stats, theme }));
   }
   console.log(`${config.username}: ${growth(stats.total).name}, total ${stats.total}, streak ${stats.streak}, idle ${stats.idleDays}d`);
 }
