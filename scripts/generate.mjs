@@ -961,10 +961,18 @@ async function writeDocs(username) {
   const seasons = [[4, 'SPRING'], [7, 'SUMMER'], [10, 'AUTUMN'], [1, 'WINTER']]
     .map(([m, name]) => ({ label: name, stats: tree(800, m) }));
 
+  // 잎만 보이도록 봄에 고정한다 — 가을이면 낙엽이, 겨울이면 눈이 판단을 흐린다
+  const wither = [[0, '0-2d'], [4, '3-6d'], [10, '7-13d'], [20, '14-29d'], [40, '30d+']]
+    .map(([idleDays, at]) => ({
+      label: `${at} · ${Math.round(leafDensity(idleDays) * 100)}%`,
+      stats: { total: 800, streak: idleDays ? 0 : 4, idleDays, month: 4 },
+    }));
+
   await mkdir(join(ROOT, 'docs'), { recursive: true });
   await writeFile(join(ROOT, 'docs', 'stages.svg'), strip(username, stages, 'profile-garden growth stages', WIN_STAGES));
   await writeFile(join(ROOT, 'docs', 'seasons.svg'), strip(username, seasons, 'profile-garden seasons', WIN_SEASONS));
-  console.log('docs/stages.svg, docs/seasons.svg written');
+  await writeFile(join(ROOT, 'docs', 'wither.svg'), strip(username, wither, 'profile-garden leaf density by idle days', WIN_SEASONS));
+  console.log('docs/stages.svg, docs/seasons.svg, docs/wither.svg written');
 }
 
 // ---------------------------------------------------------------- 실행
