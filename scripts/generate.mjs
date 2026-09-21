@@ -231,7 +231,7 @@ const makeNoise = (seed) => (x, y, salt) => hash32(`${seed}:${salt}:${x}:${y}`) 
 
 // ---------------------------------------------------------------- 그리기
 
-function render({ username, stats, theme: themeName }) {
+function scene({ username, stats, theme: themeName, plain = false }) {
   const theme = THEMES[themeName];
   const season = seasonOf(stats.month);
   const noise = makeNoise(username);
@@ -250,14 +250,16 @@ function render({ username, stats, theme: themeName }) {
         if ((x - cx) ** 2 + (y - cy) ** 2 <= r * r + 0.3) set(x, y, c);
   };
 
-  // 하늘: 위로 갈수록 짙어진다
+  // 하늘: 위로 갈수록 짙어진다. plain 은 배경 없이 나무만 남긴다(문서용 띠)
   const band = GY / theme.sky.length;
-  for (let y = 0; y < GY; y++) {
+  if (!plain) for (let y = 0; y < GY; y++) {
     const c = theme.sky[Math.min(theme.sky.length - 1, Math.floor(y / band))];
     for (let x = 0; x < W; x++) set(x, y, c);
   }
 
-  if (themeName === 'light') {
+  if (plain) {
+    // 해·달·구름·별은 배경이 있어야 말이 되므로 함께 뺀다
+  } else if (themeName === 'light') {
     circle(61, 7, 3.2, '#ffd45e');
     circle(60.5, 6.5, 1.6, '#ffe99c');
     // 해 둘레 한 겹만 밝기가 오르내린다
@@ -307,7 +309,7 @@ function render({ username, stats, theme: themeName }) {
   }
 
   // 여름 햇살: 나무 뒤로 비스듬히 내리쬔다
-  if (season === 'summer' && themeName === 'light') {
+  if (season === 'summer' && themeName === 'light' && !plain) {
     for (let i = 0; i < 3; i++) {
       const px = [];
       let rx = 56 - i * 9 + Math.floor(noise(i, 0, 'sunx') * 4);
@@ -453,7 +455,7 @@ function render({ username, stats, theme: themeName }) {
   }
 
   // 겨울에는 화면 전체로 눈이 내린다
-  if (season === 'winter') {
+  if (season === 'winter' && !plain) {
     for (let i = 0; i < 20; i++) {
       const x = Math.floor(noise(i, 0, 'snowx') * W);
       const y = Math.floor(noise(i, 1, 'snowy') * 6);
@@ -465,7 +467,7 @@ function render({ username, stats, theme: themeName }) {
   }
 
   // 나비: 봄·여름에 수관 근처를 맴돈다
-  const flies = g.stage < 2 ? 0 : season === 'spring' ? 2 : season === 'summer' ? 1 : 0;
+  const flies = plain || g.stage < 2 ? 0 : season === 'spring' ? 2 : season === 'summer' ? 1 : 0;
   for (let i = 0; i < flies; i++) {
     const cols = { '#': dim(noise(i, 0, 'wing') > 0.5 ? '#ffd76e' : '#f79ac8'), o: dim('#4a3b2a') };
     const fx = CX - 12 + Math.floor(noise(i, 1, 'flyx') * 24);
@@ -489,7 +491,12 @@ function render({ username, stats, theme: themeName }) {
       ? 'waiting for the first commit'
       : `${fmt(stats.total)} contributions · watered ${stats.idleDays}d ago`;
 
-  return toSvg(grid, theme, left, right, `${username}'s pixel garden: ${g.name}, ${fmt(stats.total)} contributions`, layers.join(''));
+  return { grid, theme, left, right, title: `${username}'s pixel garden: ${g.name}, ${fmt(stats.total)} contributions`, layers: layers.join('') };
+}
+
+function render(opts) {
+  const s = scene(opts);
+  return toSvg(s.grid, s.theme, s.left, s.right, s.title, s.layers);
 }
 
 function esc(s) {
@@ -845,6 +852,84 @@ function renderTank({ username, stats, theme: themeName }) {
   return toSvg(grid, theme, left, right, `${username}'s aquarium: ${fishCount} fish from the last 30 days`, layers.join(''));
 }
 
+// ---------------------------------------------------------------- 문서용 띠
+
+// README 에서 단계·계절을 한눈에 보여 주는 가로 띠. 카드에서 하늘·구름만 빼고
+// 작게 줄인 타일을 늘어놓는다. 라이트 한 벌만 만들고 캡션까지 흰 타일 안에 넣어,
+// GitHub 이 어떤 테마든 띠 자체는 똑같이 보인다.
+// 잘라낼 격자 창(칸 단위)은 --docs 출력을 재서 정한 값이다. 창 바깥은 clip 이 아니라
+// 아예 rect 를 만들지 않는다 — 땅이 전폭이라 그대로 두면 용량이 몇 배가 된다.
+// 성장 규칙(TRUNK_H·CANOPY_R)을 건드리면 수관이 넘치지 않는지 다시 확인할 것.
+const WIN_STAGES = { x0: 15, x1: 59, y0: 0 };   // GREAT TREE 가 17..57 칸을 쓴다
+const WIN_SEASONS = { x0: 16, x1: 57, y0: 1 };  // 800 기여 고정이라 조금 더 좁다
+const CAP = 22;   // 캡션 줄 높이(px)
+const SKY = '#cfe7f3';   // 타일 배경. 하늘 띠 가운데쯤 되는 단색
+const GAP = 8;    // 타일 사이 간격(px)
+
+function strip(username, items, title, { x0, x1, y0 }) {
+  const t = THEMES.light;
+  const tw = (x1 - x0 + 1) * P, sh = (H - y0) * P, th = sh + CAP;
+  const w = tw * items.length + GAP * (items.length - 1);
+  const font = 'ui-monospace,SFMono-Regular,Menlo,Consolas,monospace';
+
+  const tiles = items.map((item, i) => {
+    const s = scene({ username, stats: item.stats, theme: 'light', plain: true });
+
+    // 창 안쪽만 가로로 이어붙여 rect 로 (toSvg 와 같은 방식)
+    const rects = [];
+    for (let y = y0; y < H; y++) {
+      let x = x0;
+      while (x <= x1) {
+        const c = s.grid[y][x];
+        let e = x + 1;
+        while (e <= x1 && s.grid[y][e] === c) e++;
+        if (c) rects.push(`<rect x="${x * P}" y="${y * P}" width="${(e - x) * P}" height="${P}" fill="${c}"/>`);
+        x = e;
+      }
+    }
+
+    // 수관·낙엽은 layers 에 절대 좌표로 들어 있어 통째로 옮기고 타일 밖은 잘라낸다
+    return `<g transform="translate(${i * (tw + GAP)},0)">`
+      + `<g clip-path="url(#tile)">`
+      + `<rect width="${tw}" height="${th}" fill="${t.frame}"/><rect width="${tw}" height="${sh}" fill="${SKY}"/>`
+      + `<g transform="translate(${-x0 * P},${-y0 * P})" shape-rendering="crispEdges">${rects.join('')}${s.layers}</g>`
+      + `<text x="${tw / 2}" y="${sh + 14}" text-anchor="middle" font-family="${font}" font-size="11" font-weight="700" fill="${t.muted}">${esc(item.label)}</text>`
+      + `</g>`
+      + `<rect x="0.5" y="0.5" width="${tw - 1}" height="${th - 1}" rx="7.5" fill="none" stroke="${t.border}"/>`
+      + `</g>`;
+  });
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${th}" viewBox="0 0 ${w} ${th}" role="img" aria-label="${esc(title)}">
+<title>${esc(title)}</title>
+<defs><clipPath id="tile"><rect width="${tw}" height="${th}" rx="8"/></clipPath></defs>
+${STYLE}
+${tiles.join('\n')}
+</svg>
+`;
+}
+
+async function writeDocs(username) {
+  const month = Number(todayIn('Asia/Seoul').slice(5, 7));
+  const tree = (total, m = month) => ({ total, streak: 4, idleDays: 0, month: m });
+
+  // 단계마다 그 구간 한가운데쯤 되는 기여 수로 그린다. 캡션이 표를 대신한다
+  const stages = [[0, 'SEED', '0'], [4, 'SPROUT', '1+'], [25, 'SEEDLING', '10+'], [110, 'SAPLING', '50+'],
+    [330, 'YOUNG TREE', '200+'], [750, 'TREE', '500+'], [2500, 'GREAT TREE', '1,000+']]
+    .map(([total, name, at]) => ({
+      label: `${name} · ${at}`,
+      stats: total ? tree(total) : { total: 0, streak: 0, idleDays: Infinity, month },
+    }));
+
+  // 열매 규칙까지 함께 보이도록 800 기여로 고정한다
+  const seasons = [[4, 'SPRING'], [7, 'SUMMER'], [10, 'AUTUMN'], [1, 'WINTER']]
+    .map(([m, name]) => ({ label: name, stats: tree(800, m) }));
+
+  await mkdir(join(ROOT, 'docs'), { recursive: true });
+  await writeFile(join(ROOT, 'docs', 'stages.svg'), strip(username, stages, 'profile-garden growth stages', WIN_STAGES));
+  await writeFile(join(ROOT, 'docs', 'seasons.svg'), strip(username, seasons, 'profile-garden seasons', WIN_SEASONS));
+  console.log('docs/stages.svg, docs/seasons.svg written');
+}
+
 // ---------------------------------------------------------------- 실행
 
 async function writeDemo(username) {
@@ -885,6 +970,8 @@ const config = await loadConfig();
 
 if (process.argv.includes('--demo')) {
   await writeDemo(config.username || 'octocat');
+} else if (process.argv.includes('--docs')) {
+  await writeDocs(config.username || 'octocat');
 } else {
   const token = process.env.GITHUB_TOKEN;
   if (!config.username) throw new Error('Set "username" in garden.config.json or GARDEN_USER.');

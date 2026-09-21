@@ -51,15 +51,7 @@ GitHub 활동을 먹고 자라는 픽셀 아트 정원. 매일 한 번 기여 �
 
 ### 성장 — 총 기여 수
 
-| 총 기여 | 단계 |
-| --- | --- |
-| 0 | `SEED` |
-| 1+ | `SPROUT` |
-| 10+ | `SEEDLING` |
-| 50+ | `SAPLING` |
-| 200+ | `YOUNG TREE` |
-| 500+ | `TREE` |
-| 1,000+ | `GREAT TREE` |
+![growth stages](https://raw.githubusercontent.com/eongeung/profile-garden/main/docs/stages.svg)
 
 단계 사이에서도 기여가 쌓이는 만큼 줄기와 수관이 조금씩 커진다.
 `GREAT TREE` 이후로는 기여가 두 배씩 늘 때마다 완만하게 자란다.
@@ -78,9 +70,10 @@ GitHub 활동을 먹고 자라는 픽셀 아트 정원. 매일 한 번 기여 �
 
 ### 계절 · 열매
 
-봄(3–5월)은 연두에 꽃, 여름(6–8월)은 짙은 초록, 가을(9–11월)은 단풍과 낙엽,
-겨울(12–2월)은 눈 덮인 가지. 총 기여 500 이상이면 여름·가을에 250당 하나씩
-열매가 달린다(최대 9개).
+![seasons](https://raw.githubusercontent.com/eongeung/profile-garden/main/docs/seasons.svg)
+
+봄 3–5월, 여름 6–8월, 가을 9–11월, 겨울 12–2월. 총 기여 500 이상이면
+여름·가을에 250당 하나씩 열매가 달린다(최대 9개).
 
 같은 계정이면 가지 방향과 잎 위치는 항상 같다 — 사용자 이름을 시드로 쓰는 결정적 난수라 날마다 모양이 흔들리지 않는다.
 
@@ -115,6 +108,9 @@ GitHub 활동을 먹고 자라는 픽셀 아트 정원. 매일 한 번 기여 �
 ```bash
 # 가짜 데이터로 모든 단계·계절·방치 일수를 한 페이지에 펼쳐 본다
 node scripts/generate.mjs --demo   # → preview/index.html
+
+# README 에 넣는 단계·계절 띠를 다시 만든다 (성장 규칙을 고쳤을 때만)
+node scripts/generate.mjs --docs   # → docs/stages.svg, docs/seasons.svg
 
 # 실제 활동으로 dist/ 생성 (토큰 필요)
 GITHUB_TOKEN=ghp_... node scripts/generate.mjs
