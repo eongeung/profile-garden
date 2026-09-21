@@ -252,6 +252,14 @@ function hash32(str) {
     h ^= str.charCodeAt(i);
     h = Math.imul(h, 0x01000193);
   }
+
+  // FNV-1a 만으로는 마지막 글자가 상위 비트를 거의 못 흔든다. 키가 "...:x:y" 라
+  // y 만 바뀌면 값이 비슷하게 나오고, 잎이 세로줄로 뭉쳐 보였다. 끝에 한 번 더 섞는다
+  h ^= h >>> 16;
+  h = Math.imul(h, 0x7feb352d);
+  h ^= h >>> 15;
+  h = Math.imul(h, 0x846ca68b);
+  h ^= h >>> 16;
   return h >>> 0;
 }
 
