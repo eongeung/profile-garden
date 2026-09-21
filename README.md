@@ -37,7 +37,7 @@ GitHub 활동을 먹고 자라는 픽셀 아트 정원. 매일 한 번 기여 �
    를 한 번 눌러 `dist/`를 내 활동으로 덮어쓴다. 이후로는 매일 자동으로 돈다.
 4. 프로필 README에 위 `<picture>` 블록을 넣되 URL의 `eongeung`을 내 아이디로 바꾼다.
 
-비공개 저장소 기여까지 세려면 아래 「설정」의 `GARDEN_TOKEN`을 등록한다.
+비공개 저장소 기여까지 세려면 아래 「[비공개 기여까지 세기](#비공개-기여까지-세기)」를 본다.
 
 ## 동작 방식
 
@@ -100,8 +100,22 @@ GitHub 활동을 먹고 자라는 픽셀 아트 정원. 매일 한 번 기여 �
 
 `username`은 환경 변수 `GARDEN_USER`로도 덮어쓸 수 있다. `timeZone`은 "오늘"과 연속 일수를 판정하는 기준이다.
 
-비공개 저장소 기여까지 세고 싶다면 `read:user` 권한의 PAT를 만들어 저장소 시크릿 `GARDEN_TOKEN`으로 등록한다.
-없으면 워크플로가 기본 `GITHUB_TOKEN`으로 공개 기여만 센다.
+### 비공개 기여까지 세기
+
+기본 `GITHUB_TOKEN`은 남의 눈으로 프로필을 보는 것과 같아서 공개 기여만 센다.
+비공개 저장소 기여를 넣는 길은 둘이고, 하나만 고르면 된다.
+
+- **프로필에 공개한다.** [Settings → Public profile](https://github.com/settings/profile) 의
+  *Include private contributions on my profile* 를 켠다. 저장소 이름은 드러나지 않고 잔디 칸의 숫자만 올라간다.
+  시크릿을 만들 필요가 없고, GitHub 프로필의 잔디와 나무의 숫자가 같아진다.
+- **토큰으로만 본다.** 공개하지 않은 채 나무에만 반영하고 싶을 때 쓴다.
+  [classic PAT](https://github.com/settings/tokens/new?scopes=read:user&description=profile-garden) 을
+  `read:user` 권한으로 만들어 저장소 시크릿 `GARDEN_TOKEN`으로 등록한다.
+  ```bash
+  gh secret set GARDEN_TOKEN
+  ```
+
+둘 다 아니면 생성기가 `비공개 저장소 기여는 빠져 있다`를 남기고 공개 기여만으로 나무를 그린다.
 
 ## 로컬에서
 

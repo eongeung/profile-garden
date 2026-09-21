@@ -26,6 +26,9 @@ async function loadConfig() {
   };
 }
 
+// 토큰이 가진 OAuth 스코프. 헤더를 주지 않는 토큰(Actions 기본 토큰 등)에서는 null로 남는다
+let tokenScopes = null;
+
 async function gql(query, variables, token) {
   const res = await fetch('https://api.github.com/graphql', {
     method: 'POST',
@@ -36,9 +39,20 @@ async function gql(query, variables, token) {
     },
     body: JSON.stringify({ query, variables }),
   });
+  if (tokenScopes === null) tokenScopes = res.headers.get('x-oauth-scopes');
   const json = await res.json();
   if (!res.ok || json.errors) throw new Error(`GitHub API error: ${JSON.stringify(json.errors ?? json)}`);
   return json.data;
+}
+
+// 토큰 주인. 조회에 실패해도 그림은 그려야 하므로 삼키고 null을 돌려준다
+async function viewerLogin(token) {
+  try {
+    const data = await gql('query { viewer { login } }', {}, token);
+    return data.viewer?.login ?? null;
+  } catch {
+    return null;
+  }
 }
 
 async function fetchStats(username, timeZone, token) {
@@ -47,6 +61,7 @@ async function fetchStats(username, timeZone, token) {
       user(login: $login) {
         contributionsCollection {
           contributionYears
+          restrictedContributionsCount
           contributionCalendar { weeks { contributionDays { date contributionCount } } }
         }
       }
@@ -68,7 +83,21 @@ async function fetchStats(username, timeZone, token) {
   }
 
   const days = cc.contributionCalendar.weeks.flatMap((w) => w.contributionDays);
-  return summarize(total, days, todayIn(timeZone));
+  return {
+    ...summarize(total, days, todayIn(timeZone)),
+    countsPrivate: await countsPrivate(username, cc.restrictedContributionsCount, token),
+  };
+}
+
+// 비공개 저장소 기여가 위 숫자에 들어 있는지 판단한다. 들어오는 길은 둘뿐이다.
+//   1) 프로필 설정에서 비공개 기여를 공개한 경우. 이때 restrictedContributionsCount가 0보다 크고,
+//      달력 합계에 이미 포함돼 있다. 따로 더하면 두 번 세는 셈이라 더하지 않는다.
+//   2) 본인 계정의 read:user 토큰으로 조회한 경우. 공개하지 않아도 본인에게는 보인다.
+async function countsPrivate(username, restricted, token) {
+  if (restricted > 0) return true;
+  const viewer = await viewerLogin(token);
+  if (viewer?.toLowerCase() !== username.toLowerCase()) return false;
+  return tokenScopes === null || tokenScopes.split(/,\s*/).includes('read:user');
 }
 
 function todayIn(timeZone) {
@@ -984,4 +1013,7 @@ if (process.argv.includes('--demo')) {
     await writeFile(join(ROOT, 'dist', `tank-${theme}.svg`), renderTank({ username: config.username, stats, theme }));
   }
   console.log(`${config.username}: ${growth(stats.total).name}, total ${stats.total}, streak ${stats.streak}, idle ${stats.idleDays}d`);
+  if (!stats.countsPrivate) {
+    console.warn('비공개 저장소 기여는 빠져 있다. README의 "비공개 기여까지 세기"를 참고한다.');
+  }
 }
